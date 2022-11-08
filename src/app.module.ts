@@ -1,11 +1,20 @@
+import { AppController } from './app.controller';
 import { Module } from '@nestjs/common';
-import { UsersController } from './users/users.controller';
-import { UsersService } from './users/users.service';
-import { EmailService } from './email/email.service';
+import { UsersModule } from './users/users.module';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+
+const configOptions = {
+  envFilePath:
+    process.env.NODE_ENV === 'production'
+      ? '.production.env'
+      : process.env.NODE_ENV === 'stage'
+      ? '.stage.env'
+      : '.development.env',
+};
 
 @Module({
-  imports: [],
-  controllers: [UsersController],
-  providers: [UsersService, EmailService],
+  imports: [ConfigModule.forRoot(configOptions), UsersModule],
+  controllers: [AppController],
+  providers: [ConfigService],
 })
 export class AppModule {}
