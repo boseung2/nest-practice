@@ -1,7 +1,11 @@
-import { Injectable, UnprocessableEntityException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EmailService } from 'src/email/email.service';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { ulid } from 'ulid';
 import * as uuid from 'uuid';
 import { UserEntity } from './entity/user.entity';
@@ -12,6 +16,7 @@ export class UsersService {
     private emailService: EmailService,
     @InjectRepository(UserEntity)
     private userRepository: Repository<UserEntity>,
+    private dataSource: DataSource,
   ) {}
 
   async createUser(name: string, email: string, password: string) {
@@ -24,7 +29,12 @@ export class UsersService {
 
     const signupVerifyToken = uuid.v1();
 
-    await this.saveUser(name, email, password, signupVerifyToken);
+    await this.saveUserUsingQueryRunner(
+      name,
+      email,
+      password,
+      signupVerifyToken,
+    );
     await this.sendMemberJoinMail(email, signupVerifyToken);
   }
 
@@ -56,7 +66,7 @@ export class UsersService {
       where: { email },
     });
 
-    return user !== undefined;
+    return user !== null;
   }
 
   private async saveUser(
@@ -72,6 +82,54 @@ export class UsersService {
     user.password = password;
     user.signupVerifyToken = signupVerifyToken;
     await this.userRepository.save(user);
+  }
+
+  private async saveUserUsingQueryRunner(
+    name: string,
+    email: string,
+    password: string,
+    signupVerifyToken: string,
+  ) {
+    const queryRunner = this.dataSource.createQueryRunner();
+
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const user = new UserEntity();
+      user.id = ulid();
+      user.name = name;
+      user.email = email;
+      user.password = password;
+      user.signupVerifyToken = signupVerifyToken;
+
+      await queryRunner.manager.save(user);
+
+      // throw new InternalServerErrorException();
+      await queryRunner.commitTransaction();
+    } catch (e) {
+      await queryRunner.rollbackTransaction();
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  private async saveUserUsingTransaction(
+    name: string,
+    email: string,
+    password: string,
+    signupVerifyToken: string,
+  ) {
+    await this.dataSource.transaction(async (manager) => {
+      const user = new UserEntity();
+      user.id = ulid();
+      user.name = name;
+      user.email = email;
+      user.password = password;
+      user.signupVerifyToken = signupVerifyToken;
+
+      await manager.save(user);
+    });
   }
 
   private async sendMemberJoinMail(email: string, signupVerifyToken: string) {
